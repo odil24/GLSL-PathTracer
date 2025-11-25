@@ -79,7 +79,7 @@ jobs:
           $exe = Get-ChildItem -Path build -Recurse -Filter "PathTracer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { Write-Error "PathTracer executable not found in build/ - check build logs."; exit 1 }
           Write-Host "Found exe: $($exe.FullName)"
-          Remove-Item -Recurse -Force out 2>$null || $null
+          Remove-Item -Recurse -Force out -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path out | Out-Null
           Copy-Item $exe.FullName -Destination out -Force
           # Copy DLL dependencies from build tree (and the ones we put into thirdparty)
