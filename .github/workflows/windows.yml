@@ -1,89 +1,100 @@
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+name: CI - Build (Windows)
 
-  - name: Prepare directories
-    shell: pwsh
-    run: |
-      New-Item -ItemType Directory -Force -Path thirdparty\SDL2\include,thirdparty\SDL2\lib\x64,thirdparty\oidn\include,thirdparty\oidn\lib
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
-  - name: Download SDL2 (dev package) and extract
-    shell: pwsh
-    run: |
-      $sdlUrl = 'https://www.libsdl.org/release/SDL2-devel-2.0.26-VC.zip'
-      Invoke-WebRequest -Uri $sdlUrl -OutFile sdl.zip -UseBasicParsing
-      Expand-Archive sdl.zip -DestinationPath sdl_tmp -Force
+jobs:
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
 
-      # Copy headers (folder layout may vary between SDL packages)
-      $root = Get-ChildItem sdl_tmp | Select-Object -First 1
-      Copy-Item -Path (Join-Path $root.FullName 'include\*') -Destination thirdparty\SDL2\include -Recurse -Force
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Copy .lib and SDL2.dll (x64) into thirdparty/SDL2/lib/x64
-      Get-ChildItem -Path $root.FullName -Recurse -Filter '*.lib' | ForEach-Object {
-        Copy-Item $_.FullName -Destination thirdparty\SDL2\lib\x64 -Force
-      }
-      Get-ChildItem -Path $root.FullName -Recurse -Filter 'SDL2.dll' | ForEach-Object {
-        Copy-Item $_.FullName -Destination thirdparty\SDL2\lib\x64 -Force
-      }
+      - name: Prepare thirdparty directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path thirdparty\SDL2\include,thirdparty\SDL2\lib\x64,thirdparty\oidn\include,thirdparty\oidn\lib | Out-Null
 
-  - name: Download OpenImageDenoise (OIDN) and extract
-    shell: pwsh
-    run: |
-      $oidnUrl = 'https://github.com/OpenImageDenoise/oidn/releases/download/v1.2.4/oidn-1.2.4-windows.zip'
-      Invoke-WebRequest -Uri $oidnUrl -OutFile oidn.zip -UseBasicParsing
-      Expand-Archive oidn.zip -DestinationPath oidn_tmp -Force
+      - name: Download SDL2 (dev package) and extract
+        shell: pwsh
+        run: |
+          $sdlUrl = 'https://www.libsdl.org/release/SDL2-devel-2.0.26-VC.zip'
+          Write-Host "Downloading $sdlUrl"
+          Invoke-WebRequest -Uri $sdlUrl -OutFile sdl.zip -UseBasicParsing
+          Expand-Archive sdl.zip -DestinationPath sdl_tmp -Force
+          # SDL zip contains a root folder like SDL2-2.0.26 or SDL2-2.0.26-VC
+          $root = Get-ChildItem sdl_tmp | Select-Object -First 1
+          # Copy headers
+          if (Test-Path (Join-Path $root.FullName 'include')) {
+            Copy-Item -Path (Join-Path $root.FullName 'include\*') -Destination thirdparty\SDL2\include -Recurse -Force
+          } else {
+            # fallback: copy all .h files
+            Get-ChildItem -Path sdl_tmp -Recurse -Filter '*.h' | ForEach-Object { Copy-Item $_.FullName -Destination thirdparty\SDL2\include -Force }
+          }
+          # Copy libs and SDL2.dll (pick x64 .lib if present)
+          Get-ChildItem -Path $root.FullName -Recurse -Filter '*.lib' | ForEach-Object { Copy-Item $_.FullName -Destination thirdparty\SDL2\lib\x64 -Force }
+          Get-ChildItem -Path $root.FullName -Recurse -Filter 'SDL2.dll' | ForEach-Object { Copy-Item $_.FullName -Destination thirdparty\SDL2\lib\x64 -Force }
 
-      # Copy headers
-      Get-ChildItem -Path oidn_tmp -Recurse -Filter '*.h' | ForEach-Object {
-        $dest = Join-Path (Resolve-Path thirdparty\oidn\include) ($_ .DirectoryName.Replace((Resolve-Path oidn_tmp).Path, '') )
-        New-Item -ItemType Directory -Force -Path $dest | Out-Null
-        Copy-Item $_.FullName -Destination $dest -Force
-      }
+      - name: Download OpenImageDenoise (OIDN) and extract
+        shell: pwsh
+        run: |
+          $oidnUrl = 'https://github.com/OpenImageDenoise/oidn/releases/download/v1.2.4/oidn-1.2.4-windows.zip'
+          Write-Host "Downloading $oidnUrl"
+          Invoke-WebRequest -Uri $oidnUrl -OutFile oidn.zip -UseBasicParsing
+          Expand-Archive oidn.zip -DestinationPath oidn_tmp -Force
+          # Copy headers
+          Get-ChildItem -Path oidn_tmp -Recurse -Filter '*.h' | ForEach-Object {
+            Copy-Item $_.FullName -Destination thirdparty\oidn\include -Force
+          }
+          # Copy libs and dlls
+          Get-ChildItem -Path oidn_tmp -Recurse -Include '*.lib','*.dll' | ForEach-Object {
+            Copy-Item $_.FullName -Destination thirdparty\oidn\lib -Force
+          }
 
-      # Copy .lib and .dll files to thirdparty/oidn/lib
-      Get-ChildItem -Path oidn_tmp -Recurse -Include '*.lib','*.dll' | ForEach-Object {
-        Copy-Item $_.FullName -Destination thirdparty\oidn\lib -Force
-      }
+      - name: Show thirdparty layout (debug)
+        shell: pwsh
+        run: |
+          Write-Host "thirdparty layout:"
+          Get-ChildItem -Recurse thirdparty | Select-Object -First 500 | ForEach-Object { Write-Host $_.FullName }
 
-  - name: Show thirdparty layout (debug)
-    shell: pwsh
-    run: |
-      Get-ChildItem -Recurse thirdparty | Select-Object -First 500
+      - name: Configure with CMake
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
-  - name: Configure with CMake (Visual Studio generator)
-    shell: pwsh
-    run: |
-      cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build (Release)
+        shell: pwsh
+        run: |
+          cmake --build build --config Release -- /m
 
-  - name: Build (Release)
-    shell: pwsh
-    run: |
-      cmake --build build --config Release -- /m
+      - name: Locate build outputs & package
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Recurse -Filter "PathTracer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { Write-Error "PathTracer executable not found in build/ - check build logs."; exit 1 }
+          Write-Host "Found exe: $($exe.FullName)"
+          Remove-Item -Recurse -Force out 2>$null || $null
+          New-Item -ItemType Directory -Path out | Out-Null
+          Copy-Item $exe.FullName -Destination out -Force
+          # Copy DLL dependencies from build tree (and the ones we put into thirdparty)
+          Get-ChildItem -Path build -Include '*.dll' -Recurse | ForEach-Object { Copy-Item $_.FullName -Destination out -Force }
+          Get-ChildItem -Path thirdparty -Include '*.dll' -Recurse | ForEach-Object { Copy-Item $_.FullName -Destination out -Force }
+          # Copy shaders/assets if present
+          if (Test-Path src\shaders) { Copy-Item src\shaders -Destination out\shaders -Recurse -Force }
+          if (Test-Path assets) { Copy-Item assets -Destination out\assets -Recurse -Force }
+          # Create zip
+          if (Test-Path PathTracer-win.zip) { Remove-Item PathTracer-win.zip -Force }
+          Compress-Archive -Path out\* -DestinationPath PathTracer-win.zip -Force
+          Write-Host "Created PathTracer-win.zip"
 
-  - name: Locate build outputs & package
-    shell: pwsh
-    run: |
-      Write-Host "Searching for PathTracer exe and DLLs..."
-      $exe = Get-ChildItem -Path build -Recurse -Filter "PathTracer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-      if (-not $exe) { Write-Error "PathTracer executable not found in build/ - check build logs."; exit 1 }
-      Write-Host "Found exe: $($exe.FullName)"
-
-      Remove-Item -Recurse -Force out 2>$null || $null
-      New-Item -ItemType Directory -Path out | Out-Null
-
-      Copy-Item $exe.FullName -Destination out -Force
-      Get-ChildItem -Path build -Include '*.dll' -Recurse | ForEach-Object { Copy-Item $_.FullName -Destination out -Force }
-
-      if (Test-Path src\shaders) { Copy-Item src\shaders -Destination out\shaders -Recurse -Force }
-      if (Test-Path assets) { Copy-Item assets -Destination out\assets -Recurse -Force }
-
-      # Create zip
-      if (Test-Path PathTracer-win.zip) { Remove-Item PathTracer-win.zip -Force }
-      Compress-Archive -Path out\* -DestinationPath PathTracer-win.zip -Force
-      Write-Host "Created PathTracer-win.zip"
-
-  - name: Upload build artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: PathTracer-windows
-      path: PathTracer-win.zip
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PathTracer-windows
+          path: PathTracer-win.zip
