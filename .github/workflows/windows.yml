@@ -24,11 +24,11 @@ jobs:
       - name: Download SDL2 (dev package) and extract
         shell: pwsh
         run: |
-          $sdlUrl = 'https://www.libsdl.org/release/SDL2-devel-2.0.26-VC.zip'
+          $sdlUrl = 'https://github.com/libsdl-org/SDL/releases/download/release-3.2.26/SDL3-devel-3.2.26-VC.zip'
           Write-Host "Downloading $sdlUrl"
           Invoke-WebRequest -Uri $sdlUrl -OutFile sdl.zip -UseBasicParsing
           Expand-Archive sdl.zip -DestinationPath sdl_tmp -Force
-          # SDL zip contains a root folder like SDL2-2.0.26 or SDL2-2.0.26-VC
+          # SDL zip contains a root folder like SDL2-VC
           $root = Get-ChildItem sdl_tmp | Select-Object -First 1
           # Copy headers
           if (Test-Path (Join-Path $root.FullName 'include')) {
@@ -44,7 +44,7 @@ jobs:
       - name: Download OpenImageDenoise (OIDN) and extract
         shell: pwsh
         run: |
-          $oidnUrl = 'https://github.com/OpenImageDenoise/oidn/releases/download/v1.2.4/oidn-1.2.4-windows.zip'
+          $oidnUrl = 'https://github.com/RenderKit/oidn/releases/download/v2.3.3/oidn-2.3.3.x64.windows.zip'
           Write-Host "Downloading $oidnUrl"
           Invoke-WebRequest -Uri $oidnUrl -OutFile oidn.zip -UseBasicParsing
           Expand-Archive oidn.zip -DestinationPath oidn_tmp -Force
